@@ -1,0 +1,95 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <BleMouse.h>
+
+MPU6050 mpu;
+BleMouse bleMouse("Smart Pen Air Mouse", "ESP32", 100);
+
+// ---------------Pins----------------------
+#define BTN_LEFT   18
+#define BTN_RIGHT  19
+#define BTN_MODE   23
+#define LED_BT     25
+
+// ---------------Variables------------------
+bool presentationMode = false;
+unsigned long lastMoveTime = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(BTN_LEFT, INPUT_PULLUP);
+  pinMode(BTN_RIGHT, INPUT_PULLUP);
+  pinMode(BTN_MODE, INPUT_PULLUP);
+  pinMode(LED_BT, OUTPUT);
+
+  Wire.begin(21, 22);
+  mpu.initialize();
+
+  if (!mpu.testConnection()) {
+    Serial.println("MPU6050 connection failed");
+    while (1);
+  }
+
+  bleMouse.begin();
+  Serial.println("BLE Mouse Started");
+
+  digitalWrite(LED_BT, LOW);
+}
+
+void loop() {
+
+  // --------------Bluetooth Status LED---------------
+  if (bleMouse.isConnected()) {
+    digitalWrite(LED_BT, HIGH);
+  } else {
+    digitalWrite(LED_BT, millis() % 500 < 250); // blinking
+    return;
+  }
+
+  //-------------Read MPU6050------------------------
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+
+  int moveX = map(ax, -17000, 17000, -10, 10);
+  int moveY = map(ay, -17000, 17000, 10, -10);
+
+  if (abs(moveX) > 2 || abs(moveY) > 2) {
+    bleMouse.move(moveX, moveY);
+    lastMoveTime = millis();
+  }
+
+  // -----------Left Click / Next Slide--------------
+  if (!digitalRead(BTN_LEFT)) {
+    bleMouse.click(MOUSE_LEFT);
+    delay(250);
+  }
+
+  // ---------------------Right Click / Previous Slide---------------
+  if (!digitalRead(BTN_RIGHT)) {
+    bleMouse.click(MOUSE_RIGHT);
+    delay(250);
+  }
+
+  // ------------------- Mode Switch-----------------
+  if (!digitalRead(BTN_MODE)) {
+    presentationMode = !presentationMode;
+
+    // Indicate mode using LED blink
+    for (int i = 0; i < (presentationMode ? 2 : 1); i++) {
+      digitalWrite(LED_BT, LOW);
+      delay(200);
+      digitalWrite(LED_BT, HIGH);
+      delay(200);
+    }
+    delay(500);
+  }
+
+  // ---------------------Auto Sleep after 30 sec idle---------------
+  if (millis() - lastMoveTime > 30000) {
+    Serial.println("Entering light sleep");
+    esp_sleep_enable_timer_wakeup(5 * 1000000);
+    esp_light_sleep_start();
+    lastMoveTime = millis();
+  }
+}
