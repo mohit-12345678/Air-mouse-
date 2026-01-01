@@ -1,6 +1,6 @@
 # Smart Pen Air Mouse & Presentation Controller 
 
-##Intro 
+## Intro 
 It’s basically a Bluetooth smart pen that works like an air mouse and presentation remote. You just move your hand to control the cursor, and there are a few buttons for clicking and changing slides. I built it mainly for presentations, teaching, and just messing around with cool human–computer interaction ideas.
 
 ---
