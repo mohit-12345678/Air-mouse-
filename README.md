@@ -1,7 +1,7 @@
-# Smart Pen Air Mouse & Presentation Controller (ESP32)
+# Smart Pen Air Mouse & Presentation Controller 
 
-A **Bluetooth-based Smart Pen** that works as an **Air Mouse and Presentation Controller**, designed for teaching, presentations, and human–computer interaction applications.  
-The device uses **hand motion** to control the cursor and **physical buttons** for mouse clicks and slide navigation.
+##Intro 
+It’s basically a Bluetooth smart pen that works like an air mouse and presentation remote. You just move your hand to control the cursor, and there are a few buttons for clicking and changing slides. I built it mainly for presentations, teaching, and just messing around with cool human–computer interaction ideas.
 
 ---
 
