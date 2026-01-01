@@ -5,30 +5,11 @@ The device uses **hand motion** to control the cursor and **physical buttons** f
 
 ---
 
-## Features
+# Schematic 
+<img width="532" height="670" alt="Image" src="https://github.com/user-attachments/assets/ec020224-32df-4547-9763-a3067c70868a" />
 
--  Air Mouse – Control cursor movement using hand tilt  
--  Presentation Control – Next / Previous slide using buttons  
--  Dual Mode – Mouse Mode & Presentation Mode  
--  Rechargeable Battery with safe charging  
--  Bluetooth Status LED  
--  Auto Sleep Mode for power saving  
--  Auto Bluetooth Reconnect  
--  Pen-style portable design  
 
----
-
-## Working Principle
-
-1. The **MPU6050** detects hand movement using accelerometer data.  
-2. The **ESP32** processes motion data and converts it into mouse movement.  
-3. Mouse commands are transmitted wirelessly using **Bluetooth HID**.  
-4. Push buttons are used for mouse clicks and slide navigation.  
-5. A charging module safely manages the Li-ion battery.
-
----
-
-## Hardware Components
+## Hardware Components/BOM
 
 | Component | Quantity |
 |---------|---------|
@@ -68,39 +49,11 @@ The device uses **hand motion** to control the cursor and **physical buttons** f
 
 ---
 
-##  Power System
-```text
-18650 Battery
-   ↓
-TP4056 Charging Module
-   ↓
-ON / OFF Switch
-   ↓
-ESP32 VIN
-```
-
-- Charging via TP4056 Micro-USB
-- Built-in charging & full-charge indication
-- Auto sleep reduces power consumption
-
----
-
- # Software & Libraries
-- Arduino IDE
-- ESP32 Board Package
-- Libraries: ESP32 BLE Mouse (by T-vK), MPU6050, Wire
-
----
-
-Buttons:
+Buttons functions:
 - Button 1 → Left Click / Next Slide
 - Button 2 → Right Click / Previous Slide
 
 ---
+ # Final thoughts 
+ - I was always fascinated by how TV remotes work. One day, I came across this sensor called the MPU6050, and honestly, it felt like finding a hidden treasure. That’s when I started tinkering with it and things just took off from there.
 
-# Applications
-- Classroom teaching
-- Technical presentations
-- Smart classrooms
-
----
