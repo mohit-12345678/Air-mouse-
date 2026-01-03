@@ -29,7 +29,7 @@ int16_t gy_offset = 0;
 
 // ---------------- GYRO CALIBRATION ----------------
 void calibrateGyro() {
-  Serial.println("🧭 Calibrating gyro... keep device still");
+  Serial.println(" Calibrating gyro... keep device still");
 
   digitalWrite(LED_CALIB, HIGH);   // Calibration LED ON
 
@@ -78,7 +78,7 @@ void setup() {
 
   Serial.println("MPU6050 assumed OK (I2C detected)");
 
-  calibrateGyro();                 // 🔥 Auto-calibration
+  calibrateGyro();                 //  Auto-calibration
 
   bleMouse.begin();                // Start BLE HID
   Serial.println("BLE Advertising Started");
@@ -150,7 +150,7 @@ if (moveX != 0 || moveY != 0) {
 
   // -------- AUTO SLEEP (AFTER FIRST CONNECTION) --------
   if (firstConnectionMade && millis() - lastActivityTime > 600000) { // 10 min
-    Serial.println("💤 Entering light sleep");
+    Serial.println(" Entering light sleep");
 
     esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LEFT, 0);
     esp_light_sleep_start();
@@ -158,3 +158,4 @@ if (moveX != 0 || moveY != 0) {
     lastActivityTime = millis();
   }
 }
+
