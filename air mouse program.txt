@@ -1,3 +1,5 @@
+// I updated the program to use the gyro instead of the accelerometer and added a few more filters to get better accuracy.
+
 #include <Wire.h>
 #include <MPU6050.h>
 #include <BleMouse.h>
@@ -5,91 +7,154 @@
 MPU6050 mpu;
 BleMouse bleMouse("Smart Pen Air Mouse", "ESP32", 100);
 
-// ---------------Pins----------------------
-#define BTN_LEFT   18
-#define BTN_RIGHT  19
-#define BTN_MODE   23
-#define LED_BT     25
+float filteredX = 0;
+float filteredY = 0;
 
-// ---------------Variables------------------
-bool presentationMode = false;
-unsigned long lastMoveTime = 0;
 
+// ---------------- PIN CONFIG ----------------
+#define LED_RED     18    // ON when BLE disconnected
+#define LED_GREEN   17    // ON for 2s when BLE connects
+#define LED_CALIB   16    // ON during gyro calibration
+
+#define BTN_LEFT    25    // Left click / Next slide
+#define BTN_RIGHT   26    // Right click / Previous slide
+
+// ---------------- VARIABLES ----------------
+unsigned long lastActivityTime = 0;
+bool blePreviouslyConnected = false;
+bool firstConnectionMade = false;
+
+int16_t gx_offset = 0;
+int16_t gy_offset = 0;
+
+// ---------------- GYRO CALIBRATION ----------------
+void calibrateGyro() {
+  Serial.println("🧭 Calibrating gyro... keep device still");
+
+  digitalWrite(LED_CALIB, HIGH);   // Calibration LED ON
+
+  long gx_sum = 0;
+  long gy_sum = 0;
+
+  for (int i = 0; i < 500; i++) {
+    int16_t ax, ay, az, gx, gy, gz;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    gx_sum += gx;
+    gy_sum += gy;
+    delay(5);
+  }
+
+  gx_offset = gx_sum / 3500;
+  gy_offset = gy_sum / 3500;
+
+  Serial.println("✅ Gyro calibration done");
+
+  delay(2000);                     // LED ON for 2 sec
+  digitalWrite(LED_CALIB, LOW);    // Calibration LED OFF
+}
+
+// ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
+  delay(3000);   // Allow time for Serial + BLE stability
+
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_CALIB, OUTPUT);
 
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
-  pinMode(BTN_MODE, INPUT_PULLUP);
-  pinMode(LED_BT, OUTPUT);
 
+  digitalWrite(LED_RED, HIGH);     // Initially disconnected
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_CALIB, LOW);
+
+  // MPU6050 init
   Wire.begin(21, 22);
+  delay(100);
   mpu.initialize();
+  delay(100);
 
-  if (!mpu.testConnection()) {
-    Serial.println("MPU6050 connection failed");
-    while (1);
-  }
+  Serial.println("MPU6050 assumed OK (I2C detected)");
 
-  bleMouse.begin();
-  Serial.println("BLE Mouse Started");
+  calibrateGyro();                 // 🔥 Auto-calibration
 
-  digitalWrite(LED_BT, LOW);
+  bleMouse.begin();                // Start BLE HID
+  Serial.println("BLE Advertising Started");
+
+  lastActivityTime = millis();
 }
 
+// ---------------- LOOP ----------------
 void loop() {
 
-  // --------------Bluetooth Status LED---------------
-  if (bleMouse.isConnected()) {
-    digitalWrite(LED_BT, HIGH);
+  bool bleConnected = bleMouse.isConnected();
+
+  // -------- BLE STATUS LED --------
+  if (!bleConnected) {
+    digitalWrite(LED_RED, HIGH);
+    blePreviouslyConnected = false;
   } else {
-    digitalWrite(LED_BT, millis() % 500 < 250); // blinking
-    return;
+    digitalWrite(LED_RED, LOW);
   }
 
-  //-------------Read MPU6050------------------------
-  int16_t ax, ay, az;
-  mpu.getAcceleration(&ax, &ay, &az);
+  // -------- GREEN LED ON FIRST CONNECT --------
+ int16_t ax, ay, az, gx, gy, gz;
+mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-  int moveX = map(ax, -17000, 17000, -10, 10);
-  int moveY = map(ay, -17000, 17000, 10, -10);
+// Problem	            | Change                    |
+// Too jittery        	| Change 0.15 → 0.10        |
+// Too slow           	| Change /600 → /500        |
+// Too fast	            | Change /600 → /800        |
+// Slight drift	        | Increase dead zone to < 3 |
 
-  if (abs(moveX) > 2 || abs(moveY) > 2) {
-    bleMouse.move(moveX, moveY);
-    lastMoveTime = millis();
+// Remove offset
+gx -= gx_offset;
+gy -= gy_offset;
+
+// -------- LOW-PASS FILTER --------
+// 0.0 = no movement, 1.0 = raw gyro
+// Recommended: 0.15 – 0.25
+filteredX = 0.85 * filteredX + 0.10 * gx;
+filteredY = 0.85 * filteredY + 0.10 * gy;
+
+// -------- SCALE (SLOW & STABLE) --------
+int moveX = filteredY / 800;
+int moveY = -filteredX / 800;
+
+// -------- STRONG DEAD ZONE --------
+if (abs(moveX) < 2) moveX = 0;
+if (abs(moveY) < 2) moveY = 0;
+
+// -------- MOVE MOUSE --------
+if (moveX != 0 || moveY != 0) {
+  bleMouse.move(moveX, moveY);
+  lastActivityTime = millis();
+
+
   }
 
-  // -----------Left Click / Next Slide--------------
+  // -------- BUTTONS --------
   if (!digitalRead(BTN_LEFT)) {
     bleMouse.click(MOUSE_LEFT);
-    delay(250);
+    lastActivityTime = millis();
+    delay(200);
   }
 
-  // ---------------------Right Click / Previous Slide---------------
   if (!digitalRead(BTN_RIGHT)) {
     bleMouse.click(MOUSE_RIGHT);
-    delay(250);
+    lastActivityTime = millis();
+    delay(200);
   }
 
-  // ------------------- Mode Switch-----------------
-  if (!digitalRead(BTN_MODE)) {
-    presentationMode = !presentationMode;
+  // -------- AUTO SLEEP (AFTER FIRST CONNECTION) --------
+  if (firstConnectionMade && millis() - lastActivityTime > 600000) { // 10 min
+    Serial.println("💤 Entering light sleep");
 
-    // Indicate mode using LED blink
-    for (int i = 0; i < (presentationMode ? 2 : 1); i++) {
-      digitalWrite(LED_BT, LOW);
-      delay(200);
-      digitalWrite(LED_BT, HIGH);
-      delay(200);
-    }
-    delay(500);
-  }
-
-  // ---------------------Auto Sleep after 30 sec idle---------------
-  if (millis() - lastMoveTime > 30000) {
-    Serial.println("Entering light sleep");
-    esp_sleep_enable_timer_wakeup(5 * 1000000);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LEFT, 0);
     esp_light_sleep_start();
-    lastMoveTime = millis();
+
+    lastActivityTime = millis();
   }
 }
