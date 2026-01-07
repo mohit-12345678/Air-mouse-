@@ -1,0 +1,158 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <BleMouse.h>
+
+MPU6050 mpu;
+BleMouse bleMouse("Smart Pen Air Mouse", "ESP32", 100);
+
+float filteredX = 0;
+float filteredY = 0;
+
+
+// ---------------- PIN CONFIG ----------------
+#define LED_RED     18    // ON when BLE disconnected
+#define LED_GREEN   17    // ON for 2s when BLE connects
+#define LED_CALIB   16    // ON during gyro calibration
+
+#define BTN_LEFT    25    // Left click / Next slide
+#define BTN_RIGHT   26    // Right click / Previous slide
+
+// ---------------- VARIABLES ----------------
+unsigned long lastActivityTime = 0;
+bool blePreviouslyConnected = false;
+bool firstConnectionMade = false;
+
+int16_t gx_offset = 0;
+int16_t gy_offset = 0;
+
+// ---------------- GYRO CALIBRATION ----------------
+void calibrateGyro() {
+  Serial.println("🧭 Calibrating gyro... keep device still");
+
+  digitalWrite(LED_CALIB, HIGH);   // Calibration LED ON
+
+  long gx_sum = 0;
+  long gy_sum = 0;
+
+  for (int i = 0; i < 500; i++) {
+    int16_t ax, ay, az, gx, gy, gz;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    gx_sum += gx;
+    gy_sum += gy;
+    delay(5);
+  }
+
+  gx_offset = gx_sum / 3500;
+  gy_offset = gy_sum / 3500;
+
+  Serial.println("✅ Gyro calibration done");
+
+  delay(2000);                     // LED ON for 2 sec
+  digitalWrite(LED_CALIB, LOW);    // Calibration LED OFF
+}
+
+// ---------------- SETUP ----------------
+void setup() {
+  Serial.begin(115200);
+  delay(3000);   // Allow time for Serial + BLE stability
+
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_CALIB, OUTPUT);
+
+  pinMode(BTN_LEFT, INPUT_PULLUP);
+  pinMode(BTN_RIGHT, INPUT_PULLUP);
+
+  digitalWrite(LED_RED, HIGH);     // Initially disconnected
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_CALIB, LOW);
+
+  // MPU6050 init
+  Wire.begin(21, 22);
+  delay(100);
+  mpu.initialize();
+  delay(100);
+
+  Serial.println("MPU6050 assumed OK (I2C detected)");
+
+  calibrateGyro();                 // 🔥 Auto-calibration
+
+  bleMouse.begin();                // Start BLE HID
+  Serial.println("BLE Advertising Started");
+
+  lastActivityTime = millis();
+}
+
+// ---------------- LOOP ----------------
+void loop() {
+
+  bool bleConnected = bleMouse.isConnected();
+
+  // -------- BLE STATUS LED --------
+  if (!bleConnected) {
+    digitalWrite(LED_RED, HIGH);
+    blePreviouslyConnected = false;
+  } else {
+    digitalWrite(LED_RED, LOW);
+  }
+
+  // -------- GREEN LED ON FIRST CONNECT --------
+ int16_t ax, ay, az, gx, gy, gz;
+mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+// Problem	            | Change                    |
+// Too jittery        	| Change 0.15 → 0.10        |
+// Too slow           	| Change /600 → /500        |
+// Too fast	            | Change /600 → /800        |
+// Slight drift	        | Increase dead zone to < 3 |
+
+// Remove offset
+gx -= gx_offset;
+gy -= gy_offset;
+
+// -------- LOW-PASS FILTER --------
+// 0.0 = no movement, 1.0 = raw gyro
+// Recommended: 0.15 – 0.25
+filteredX = 0.85 * filteredX + 0.10 * gx;
+filteredY = 0.85 * filteredY + 0.10 * gy;
+
+// -------- SCALE (SLOW & STABLE) --------
+int moveX = filteredY / 800;
+int moveY = -filteredX / 800;
+
+// -------- STRONG DEAD ZONE --------
+if (abs(moveX) < 2) moveX = 0;
+if (abs(moveY) < 2) moveY = 0;
+
+// -------- MOVE MOUSE --------
+if (moveX != 0 || moveY != 0) {
+  bleMouse.move(moveX, moveY);
+  lastActivityTime = millis();
+
+
+  }
+
+  // -------- BUTTONS --------
+  if (!digitalRead(BTN_LEFT)) {
+    bleMouse.click(MOUSE_LEFT);
+    lastActivityTime = millis();
+    delay(200);
+  }
+
+  if (!digitalRead(BTN_RIGHT)) {
+    bleMouse.click(MOUSE_RIGHT);
+    lastActivityTime = millis();
+    delay(200);
+  }
+
+  // -------- AUTO SLEEP (AFTER FIRST CONNECTION) --------
+  if (firstConnectionMade && millis() - lastActivityTime > 600000) { // 10 min
+    Serial.println("💤 Entering light sleep");
+
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LEFT, 0);
+    esp_light_sleep_start();
+
+    lastActivityTime = millis();
+  }
+}
